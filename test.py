@@ -1,5 +1,5 @@
-script.tvguide
-==============
+#script.tvguide
+#==============
 
 import xbmc
 import xbmcgui
@@ -17,8 +17,9 @@ from xml.etree import ElementTree
 import xml.etree.ElementTree as ET
 from UserDict import DictMixin
 
+# two separate flags to kill the AllChannelsThread and the TimerThread
 __killthread__ = False
-
+__killtimer__ = False
 
 #get actioncodes from keyboard.xml
 ACTION_MOVE_LEFT = 1
@@ -386,7 +387,10 @@ class MyClass(xbmcgui.WindowXML):
      def __new__(cls):
          return super(MyClass, cls).__new__(cls, 'script-tvguide-mainmenu.xml', ADDON.getAddonInfo('path'))
 
-
+     def __init__(self):
+         # Needed to set this to avoid possible errors of attribute instantiation
+         self.thread = None
+         self.threadt = None
 
      def onInit(self):
          self.getControl(3).setAnimations([('fade', 'effect=fade start=0 end=100 time=1500')])
@@ -843,205 +847,82 @@ class MyClass(xbmcgui.WindowXML):
          return credits
 
 
-     def timer1_8percent(self):
-         for i in range(1):
-             time.sleep(1)
-             self.getControl(4202).setLabel("8%")
-
-
-     def timer1_12percent(self):
-         for i in range(1):
-             time.sleep(2)
-             self.getControl(4202).setLabel("12%")
-
-
-     def timer1_18percent(self):
-         for i in range(1):
-             time.sleep(3)
-             self.getControl(4202).setLabel("18%")
-
-
-     def timer1_24percent(self):
-         for i in range(1):
-             time.sleep(4)
-             self.getControl(4202).setLabel("24%")
-
-
-     def timer1_32percent(self):
-         for i in range(1):
-             time.sleep(5)
-             self.getControl(4202).setLabel("32%")
-
-
-     def timer1_36percent(self):
-         for i in range(1):
-             time.sleep(6)
-             self.getControl(4202).setLabel("36%")
-
-
-     def timer1_40percent(self):
-         for i in range(1):
-             time.sleep(7)
-             self.getControl(4202).setLabel("40%")
-
-
-     def timer1_48percent(self):
-         for i in range(1):
-             time.sleep(8)
-             self.getControl(4202).setLabel("48%")
-
-
-     def timer1_56percent(self):
-         for i in range(1):
-             time.sleep(9)
-             self.getControl(4202).setLabel("56%")
-
-
-     def timer1_64percent(self):
-         for i in range(1):
-             time.sleep(10)
-             self.getControl(4202).setLabel("64%")
-
-
-     def timer1_72percent(self):
-         for i in range(1):
-             time.sleep(11)
-             self.getControl(4202).setLabel("72%")
-
-
-     def timer1_80percent(self):
-         for i in range(1):
-             time.sleep(12)
-             self.getControl(4202).setLabel("80%")
-
-
-     def timer1_88percent(self):
-         for i in range(1):
-             time.sleep(13)
-             self.getControl(4202).setLabel("88%")
-
-
-     def timer1_94percent(self):
-         for i in range(1):
-             time.sleep(14)
-             self.getControl(4202).setLabel("94%")
-
-
-     def timer1_98percent(self):
-         for i in range(1):
-             time.sleep(15)
-             self.getControl(4202).setLabel("98%")
-
-
-     def timer1_100percent(self):
-         for i in range(1):
-             time.sleep(16)
-             self.getControl(4202).setLabel("100%")
-
-
-
 
      def allchannels_timer(self):
-         while __killthread__ is False:
-             time.sleep(2)
-             self.getControl(4202).setLabel("1%")
-             self.thread = threading.Thread(target=self.timer1_8percent)
-             self.thread.setDaemon(True)
-             self.thread.start()
-             self.thread = threading.Thread(target=self.timer1_12percent)
-             self.thread.setDaemon(True)
-             self.thread.start()
-             #DOWNLOAD THE XML SOURCE HERE
-             url = ADDON.getSetting('allchannel.url')
-             req = urllib2.Request(url)
-             response = urllib2.urlopen(req)
-             data = response.read()
-             response.close()
-             self.thread = threading.Thread(target=self.timer1_18percent)
-             self.thread.setDaemon(True)
-             self.thread.start()
-             self.thread = threading.Thread(target=self.timer1_24percent)
-             self.thread.setDaemon(True)
-             self.thread.start()
-             self.thread = threading.Thread(target=self.timer1_32percent)
-             self.thread.setDaemon(True)
-             self.thread.start()
-             profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))
+         # Need to call global below in order to be able to change the variables
+         global __killtimer__
+         global __killthread__
+         self.getControl(4202).setLabel("1%")
+         # Calls the new class. See the end.
+         self.threadt = TimerThread(1, 12, 2, 2, self.getControl(4202))
+         self.threadt.start()
+         #DOWNLOAD THE XML SOURCE HERE
+         url = ADDON.getSetting('allchannel.url')
+         req = urllib2.Request(url)
+         response = urllib2.urlopen(req)
+         data = response.read()
+         response.close()
+         # Next four lines set the kill flag, wait for the thread to finish and then reset the flag
+         # I am killing the timer if you reach this point and the timer hasn't reached the end yet, same below
+         __killtimer__ = True
+         self.threadt.stop()
+         __killtimer__ = False
+         if __killthread__:
+             return
+         self.threadt = TimerThread(12, 32, 3, 3, self.getControl(4202))
+         self.threadt.start()
+         profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))
+         profilePath = profilePath + 'source.db'
+         if os.path.exists(profilePath):
+            os.remove(profilePath)
+         con = database.connect(profilePath)
+         cur = con.cursor()
+         cur.execute('CREATE TABLE programs(channel TEXT, title TEXT, start_date TIMESTAMP, stop_date TIMESTAMP, description TEXT)')
+         con.commit()
+         tv_elem = ElementTree.parse(StringIO.StringIO(data)).getroot()
+         profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))  # line sets variable that's never used
+         cur = con.cursor()
+         channels = OrderedDict()  # line sets variable that's never used
+         __killtimer__ = True
+         self.threadt.stop()
+         __killtimer__ = False
+         self.threadt = TimerThread(32,100,16,11, self.getControl(4202))
+         self.threadt.start()
 
-
-
-             if os.path.exists(profilePath):
-                 profilePath = profilePath + 'source.db'
-                 con = database.connect(profilePath)
-                 cur = con.cursor()
-                 cur.execute('CREATE TABLE programs(channel TEXT, title TEXT, start_date TIMESTAMP, stop_date TIMESTAMP, description TEXT)')
+         # Get the loaded data
+         for channel in tv_elem.findall('channel'):
+             channel_name = channel.find('display-name').text
+             for program in channel.findall('programme'):
+                 if __killthread__:
+                     # If aborting, close the database connection and delete so that the file is properly released
+                     con.close()
+                     del con
+                     return
+                 title = program.find('title').text
+                 start_time = program.get("start")
+                 stop_time = program.get("stop")
+                 cur.execute("INSERT INTO programs(channel, title, start_date, stop_date)" + " VALUES(?, ?, ?, ?)", [channel_name, title, start_time, stop_time])
                  con.commit()
-                 tv_elem = ElementTree.parse(StringIO.StringIO(data)).getroot()
-                 profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))
-                 cur = con.cursor()
-                 channels = OrderedDict()
-                 self.thread = threading.Thread(target=self.timer1_36percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_40percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_48percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_56percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_64percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_72percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_80percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_88percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_94percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_98percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
-                 self.thread = threading.Thread(target=self.timer1_100percent)
-                 self.thread.setDaemon(True)
-                 self.thread.start()
- 
- 
-                 # Get the loaded data
-                 for channel in tv_elem.findall('channel'):
-                     channel_name = channel.find('display-name').text
-                     for program in channel.findall('programme'):
-                         if __killthread__:
-                             return
-                         title = program.find('title').text
-                         start_time = program.get("start")
-                         stop_time = program.get("stop")
-                         cur.execute("INSERT INTO programs(channel, title, start_date, stop_date)" + " VALUES(?, ?, ?, ?)", [channel_name, title, start_time, stop_time])
-                         con.commit()
-                         con.close
- 
-                 print 'Channels store into database are now successfully!'
-                 program = None
-                 now = datetime.datetime.now()
-                 #strCh = '(\'' + '\',\''.join(channelMap.keys()) + '\')'
-                 cur.execute('SELECT channel, title, start_date, stop_date FROM programs WHERE channel')
-                 getprogram_info = cur.fetchall()
- 
-                 for row in getprogram_info:
-                     programming = row[0], row[1], row[2], row[3]
-                     print programming
-                     #print row[0], row[1], row[2], row[3]
-                     #programming = row[0], row[1], row[2], row[3]
-                     #programming = row[0], row[1], row[2], row[3]
-                     #cur.close()#
+                 con.close
+
+         print 'Channels store into database are now successfully!'
+         program = None  # line sets variable that is never used
+         now = datetime.datetime.now()
+         #strCh = '(\'' + '\',\''.join(channelMap.keys()) + '\')'
+         cur.execute('SELECT channel, title, start_date, stop_date FROM programs WHERE channel')
+         getprogram_info = cur.fetchall()
+
+         for row in getprogram_info:
+             programming = row[0], row[1], row[2], row[3]
+             print programming  # I assume you are printing to the console because this is still in development
+             #print row[0], row[1], row[2], row[3]
+             #programming = row[0], row[1], row[2], row[3]
+             #programming = row[0], row[1], row[2], row[3]
+             #cur.close()#
+         __killtimer__ = True
+         self.threadt.stop()
+         del self.threadt
+         __killtimer__ = False
 
 
 
@@ -1277,7 +1158,8 @@ class MyClass(xbmcgui.WindowXML):
              self.close()
 
 
-         if action == ACTION_BACKSPACE:
+         if action == ACTION_BACKSPACE  or action.getButtonCode() == 61448:
+             # I added the other code because at least on windows, ACTION_BACKSPACE was not catching the backspace button
              if allchannels_enabled:
                  cSetVisible(self,3,True)
                  cSetVisible(self,5,True)
@@ -1299,9 +1181,11 @@ class MyClass(xbmcgui.WindowXML):
                  cSetVisible(self,4202,False)
                  self.getControl(4202).setLabel("")
                  ADDON.setSetting('allchannels.enabled', 'false')
-                 __killthread__ = True
-                 self.thread.join(0.5)
-                 profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))
+                 self.abortdownload()
+                 profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', 'script.db'))
+                 # Deletes the db file if it persists after abort
+                 if os.path.exists(profilePath):
+                    os.remove(profilePath)
 
 
                  if english_enabled:
@@ -2091,8 +1975,7 @@ class MyClass(xbmcgui.WindowXML):
                      cSetVisible(self,4201,True)
                      cSetVisible(self,4202,True)
                      self.getControl(4202).setLabel("0%")
-                     self.thread = threading.Thread(target=self.allchannels_timer)
-                     self.thread.setDaemon(True)
+                     self.thread = AllChannelsThread(self.allchannels_timer)
                      self.thread.start()
 
 
@@ -2227,21 +2110,21 @@ class MyClass(xbmcgui.WindowXML):
 
                      #get language
                      if english_enabled:
-                         SetVisible(self,46,False)
-                         SetVisible(self,49,False)
-                         SetVisible(self,51,False)
-                         SetVisible(self,53,False)
-                         SetVisible(self,55,False)
-                         SetVisible(self,57,False)
-                         SetVisible(self,58,False)
-                         SetVisible(self,61,False)
-                         SetVisible(self,63,False)
-                         SetVisible(self,65,False)
-                         SetVisible(self,67,False)
-                         SetVisible(self,69,False)
-                         SetVisible(self,71,False)
-                         SetVisible(self,73,False)
-                         SetVisible(self,92,True)
+                         cSetVisible(self,46,False)
+                         cSetVisible(self,49,False)
+                         cSetVisible(self,51,False)
+                         cSetVisible(self,53,False)
+                         cSetVisible(self,55,False)
+                         cSetVisible(self,57,False)
+                         cSetVisible(self,58,False)
+                         cSetVisible(self,61,False)
+                         cSetVisible(self,63,False)
+                         cSetVisible(self,65,False)
+                         cSetVisible(self,67,False)
+                         cSetVisible(self,69,False)
+                         cSetVisible(self,71,False)
+                         cSetVisible(self,73,False)
+                         cSetVisible(self,92,True)
 
 
 
@@ -2274,21 +2157,21 @@ class MyClass(xbmcgui.WindowXML):
 
                      #get language
                      if english_enabled:
-                         SetVisible(self,46,False)
-                         SetVisible(self,49,False)
-                         SetVisible(self,51,False)
-                         SetVisible(self,53,False)
-                         SetVisible(self,55,False)
-                         SetVisible(self,57,False)
-                         SetVisible(self,59,False)
-                         SetVisible(self,60,False)
-                         SetVisible(self,63,False)
-                         SetVisible(self,65,False)
-                         SetVisible(self,67,False)
-                         SetVisible(self,69,False)
-                         SetVisible(self,71,False)
-                         SetVisible(self,73,False)
-                         SetVisible(self,93,True)
+                         cSetVisible(self,46,False)
+                         cSetVisible(self,49,False)
+                         cSetVisible(self,51,False)
+                         cSetVisible(self,53,False)
+                         cSetVisible(self,55,False)
+                         cSetVisible(self,57,False)
+                         cSetVisible(self,59,False)
+                         cSetVisible(self,60,False)
+                         cSetVisible(self,63,False)
+                         cSetVisible(self,65,False)
+                         cSetVisible(self,67,False)
+                         cSetVisible(self,69,False)
+                         cSetVisible(self,71,False)
+                         cSetVisible(self,73,False)
+                         cSetVisible(self,93,True)
 
 
 
@@ -2322,21 +2205,21 @@ class MyClass(xbmcgui.WindowXML):
 
                      #get language
                      if english_enabled:
-                         SetVisible(self,46,False)
-                         SetVisible(self,49,False)
-                         SetVisible(self,51,False)
-                         SetVisible(self,53,False)
-                         SetVisible(self,55,False)
-                         SetVisible(self,57,False)
-                         SetVisible(self,59,False)
-                         SetVisible(self,61,False)
-                         SetVisible(self,62,False)
-                         SetVisible(self,65,False)
-                         SetVisible(self,67,False)
-                         SetVisible(self,69,False)
-                         SetVisible(self,71,False)
-                         SetVisible(self,73,False)
-                         SetVisible(self,94,True)
+                         cSetVisible(self,46,False)
+                         cSetVisible(self,49,False)
+                         cSetVisible(self,51,False)
+                         cSetVisible(self,53,False)
+                         cSetVisible(self,55,False)
+                         cSetVisible(self,57,False)
+                         cSetVisible(self,59,False)
+                         cSetVisible(self,61,False)
+                         cSetVisible(self,62,False)
+                         cSetVisible(self,65,False)
+                         cSetVisible(self,67,False)
+                         cSetVisible(self,69,False)
+                         cSetVisible(self,71,False)
+                         cSetVisible(self,73,False)
+                         cSetVisible(self,94,True)
 
 
 
@@ -2370,21 +2253,21 @@ class MyClass(xbmcgui.WindowXML):
 
                      #get language
                      if english_enabled:
-                         SetVisible(self,46,False)
-                         SetVisible(self,49,False)
-                         SetVisible(self,51,False)
-                         SetVisible(self,53,False)
-                         SetVisible(self,55,False)
-                         SetVisible(self,57,False)
-                         SetVisible(self,59,False)
-                         SetVisible(self,61,False)
-                         SetVisible(self,63,False)
-                         SetVisible(self,64,False)
-                         SetVisible(self,67,False)
-                         SetVisible(self,69,False)
-                         SetVisible(self,71,False)
-                         SetVisible(self,73,False)
-                         SetVisible(self,95,True)
+                         cSetVisible(self,46,False)
+                         cSetVisible(self,49,False)
+                         cSetVisible(self,51,False)
+                         cSetVisible(self,53,False)
+                         cSetVisible(self,55,False)
+                         cSetVisible(self,57,False)
+                         cSetVisible(self,59,False)
+                         cSetVisible(self,61,False)
+                         cSetVisible(self,63,False)
+                         cSetVisible(self,64,False)
+                         cSetVisible(self,67,False)
+                         cSetVisible(self,69,False)
+                         cSetVisible(self,71,False)
+                         cSetVisible(self,73,False)
+                         cSetVisible(self,95,True)
 
 
 
@@ -2418,21 +2301,21 @@ class MyClass(xbmcgui.WindowXML):
 
                      #get language
                      if english_enabled:
-                         SetVisible(self,46,False)
-                         SetVisible(self,49,False)
-                         SetVisible(self,51,False)
-                         SetVisible(self,53,False)
-                         SetVisible(self,55,False)
-                         SetVisible(self,57,False)
-                         SetVisible(self,59,False)
-                         SetVisible(self,61,False)
-                         SetVisible(self,63,False)
-                         SetVisible(self,65,False)
-                         SetVisible(self,66,False)
-                         SetVisible(self,69,False)
-                         SetVisible(self,71,False)
-                         SetVisible(self,73,False)
-                         SetVisible(self,96,True)
+                         cSetVisible(self,46,False)
+                         cSetVisible(self,49,False)
+                         cSetVisible(self,51,False)
+                         cSetVisible(self,53,False)
+                         cSetVisible(self,55,False)
+                         cSetVisible(self,57,False)
+                         cSetVisible(self,59,False)
+                         cSetVisible(self,61,False)
+                         cSetVisible(self,63,False)
+                         cSetVisible(self,65,False)
+                         cSetVisible(self,66,False)
+                         cSetVisible(self,69,False)
+                         cSetVisible(self,71,False)
+                         cSetVisible(self,73,False)
+                         cSetVisible(self,96,True)
 
 
 
@@ -2467,21 +2350,21 @@ class MyClass(xbmcgui.WindowXML):
 
                      #get language
                      if english_enabled:
-                         SetVisible(self,46,False)
-                         SetVisible(self,49,False)
-                         SetVisible(self,51,False)
-                         SetVisible(self,53,False)
-                         SetVisible(self,55,False)
-                         SetVisible(self,57,False)
-                         SetVisible(self,59,False)
-                         SetVisible(self,61,False)
-                         SetVisible(self,63,False)
-                         SetVisible(self,65,False)
-                         SetVisible(self,67,False)
-                         SetVisible(self,68,False)
-                         SetVisible(self,71,False)
-                         SetVisible(self,73,False)
-                         SetVisible(self,97,True)
+                         cSetVisible(self,46,False)
+                         cSetVisible(self,49,False)
+                         cSetVisible(self,51,False)
+                         cSetVisible(self,53,False)
+                         cSetVisible(self,55,False)
+                         cSetVisible(self,57,False)
+                         cSetVisible(self,59,False)
+                         cSetVisible(self,61,False)
+                         cSetVisible(self,63,False)
+                         cSetVisible(self,65,False)
+                         cSetVisible(self,67,False)
+                         cSetVisible(self,68,False)
+                         cSetVisible(self,71,False)
+                         cSetVisible(self,73,False)
+                         cSetVisible(self,97,True)
 
 
 
@@ -7197,3 +7080,85 @@ class MyClass(xbmcgui.WindowXML):
                          cSetVisible(self,4016,True)
                      elif PIN_4_enabled == False:
                          pass
+
+     def abortdownload(self):
+         # This sets the flags for both processes to kill themselves
+         global __killthread__
+         global __killtimer__
+         __killthread__ = True
+         __killtimer__ = True
+         if self.threadt is not None:
+            self.threadt.stop()
+         if self.thread is not None:
+            self.thread.stop()
+         __killtimer__ = False
+         __killthread__ = False
+
+
+class TimerThread(threading.Thread):
+
+    def __init__(self, xstart, xend, xtime, num_steps, targetcontrol):
+        """
+        Class that updates the perecent on targetcontrol based on time
+        :param xstart: The starting percentage
+        :param xend: The ending percentage
+        :param xtime: The amount of time to go from start to end
+        :param num_steps: The number of times to update the label
+        :param targetcontrol: The control (label) to be updated
+        :return:
+        """
+        threading.Thread.__init__(self, name='progress_timer')
+        self.xstart = xstart
+        self.xend = xend
+        self.xtime = xtime
+        self.num_steps = num_steps
+        self.targetcontrol = targetcontrol
+
+    def start(self):
+        threading.Thread.start(self)
+
+    def stop(self):
+        self.join(0.25)
+
+    def run(self):
+        # Multiple try blocks due to the fact that during an abort, the control may be deleted before
+        # arriving at that point in the loop
+        time_interval = int((self.xtime/self.num_steps) + 0.5) * 1000
+        status_interval = int(((self.xend-self.xstart)/self.num_steps) + 0.5)
+        status = self.xstart
+        try:
+            self.targetcontrol.setLabel(str(self.xstart) + "%")
+        except:
+            return
+        for i in xrange(self.num_steps):
+            if __killtimer__:
+                try:
+                    self.targetcontrol.setLabel(str(self.xend) + '%')
+                except:
+                    pass
+                return
+            xbmc.sleep(time_interval)
+            status += status_interval
+            try:
+                self.targetcontrol.setLabel(str(status) + "%")
+            except:
+                return
+        try:
+            self.targetcontrol.setLabel(str(self.xend) + '%')
+        except:
+            return
+
+class AllChannelsThread(threading.Thread):
+    # This is needed for proper threading. The other method continued to block on the call.
+    def __init__(self, xtarget):
+        threading.Thread.__init__(self, name='all_channels_thread')
+        self.xtarget = xtarget
+
+    def start(self):
+        threading.Thread.start(self)
+
+    def run(self):
+        self.xtarget()
+
+    def stop(self):
+        self.join(0.25)

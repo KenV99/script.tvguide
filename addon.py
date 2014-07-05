@@ -1,5 +1,5 @@
-script.tvguide
-==============
+#script.tvguide
+#==============
 
 import test
 import xbmcaddon
