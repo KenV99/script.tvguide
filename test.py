@@ -388,9 +388,8 @@ class MyClass(xbmcgui.WindowXML):
          return super(MyClass, cls).__new__(cls, 'script-tvguide-mainmenu.xml', ADDON.getAddonInfo('path'))
 
      def __init__(self):
-         # Needed to set this to avoid possible errors of attribute instantiation
+         self._timel = []
          self.thread = None
-         self.threadt = None
 
      def onInit(self):
          self.getControl(3).setAnimations([('fade', 'effect=fade start=0 end=100 time=1500')])
@@ -846,86 +845,124 @@ class MyClass(xbmcgui.WindowXML):
                  creditss.set_type('director')
          return credits
 
+     def logtime(self, str_label):
+         ctime = time.time()
+         if str_label == 'start':
+                self._timel = [[ctime, 0, 'start']]
+         elif str_label == 'end':
+             ret = ''
+             total = sum(row[1] for row in self._timel)
+             for i in self._timel:
+                 x1 = int(((float(i[1])/float(total)) * 100.0) + 0.5)
+                 ret += str(i[2]) + ': ' + str(i[1]) + " - " + str(x1) + "%\n"
+             return ret
+         else:
+             try:
+                 x = self._timel[len(self._timel) - 1]
+                 last = x[0]
+                 diff = datetime.timedelta(ctime - last).seconds
+                 self._timel.append([ctime, diff , str_label])
+             except Exception, e:
+                 pass
 
 
      def allchannels_timer(self):
-         # Need to call global below in order to be able to change the variables
-         global __killtimer__
          global __killthread__
-         self.getControl(4202).setLabel("1%")
-         # Calls the new class. See the end.
-         self.threadt = TimerThread(1, 12, 2, 2, self.getControl(4202))
-         self.threadt.start()
-         #DOWNLOAD THE XML SOURCE HERE
-         url = ADDON.getSetting('allchannel.url')
-         req = urllib2.Request(url)
-         response = urllib2.urlopen(req)
-         data = response.read()
-         response.close()
-         # Next four lines set the kill flag, wait for the thread to finish and then reset the flag
-         # I am killing the timer if you reach this point and the timer hasn't reached the end yet, same below
-         __killtimer__ = True
-         self.threadt.stop()
-         __killtimer__ = False
-         if __killthread__:
-             return
-         self.threadt = TimerThread(12, 32, 3, 3, self.getControl(4202))
-         self.threadt.start()
-         profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))
-         profilePath = profilePath + 'source.db'
-         if os.path.exists(profilePath):
-            os.remove(profilePath)
-         con = database.connect(profilePath)
-         cur = con.cursor()
-         cur.execute('CREATE TABLE programs(channel TEXT, title TEXT, start_date TIMESTAMP, stop_date TIMESTAMP, description TEXT)')
-         con.commit()
-         tv_elem = ElementTree.parse(StringIO.StringIO(data)).getroot()
-         profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', ''))  # line sets variable that's never used
-         cur = con.cursor()
-         channels = OrderedDict()  # line sets variable that's never used
-         __killtimer__ = True
-         self.threadt.stop()
-         __killtimer__ = False
-         self.threadt = TimerThread(32,100,16,11, self.getControl(4202))
-         self.threadt.start()
-
-         # Get the loaded data
-         for channel in tv_elem.findall('channel'):
-             channel_name = channel.find('display-name').text
-             for program in channel.findall('programme'):
+         self.getControl(4202).setLabel("0%")
+         # self.logtime('start')
+         try:
+         # DOWNLOAD THE XML SOURCE HERE
+             url = ADDON.getSetting('allchannel.url')
+             data = ''
+             u = urllib2.urlopen(url)
+             meta = u.info()
+             file_size = int(meta.getheaders("Content-Length")[0])
+             file_size_dl = 0
+             block_sz = 2048
+             while True and not __killthread__:
+                 mbuffer = u.read(block_sz)
+                 if not mbuffer:
+                     break
+                 file_size_dl += len(mbuffer)
+                 data += mbuffer
+                 state = int(file_size_dl * 10.0 / file_size)
+                 self.getControl(4202).setLabel(str(state) + '%')
+             else:
                  if __killthread__:
-                     # If aborting, close the database connection and delete so that the file is properly released
-                     con.close()
-                     del con
-                     return
-                 title = program.find('title').text
-                 start_time = program.get("start")
-                 stop_time = program.get("stop")
-                 cur.execute("INSERT INTO programs(channel, title, start_date, stop_date)" + " VALUES(?, ?, ?, ?)", [channel_name, title, start_time, stop_time])
+                     raise AbortDownload('downloading')
+             del u
+             # self.logtime('Download')
+
+
+             # CREATE DATABASE
+             profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', 'source.db'))
+             if os.path.exists(profilePath):
+                os.remove(profilePath)
+             con = database.connect(profilePath)
+             cur = con.cursor()
+             cur.execute('CREATE TABLE programs(channel TEXT, title TEXT, start_date TIMESTAMP, stop_date TIMESTAMP, description TEXT)')
+             con.commit()
+             # self.logtime('Create Database')
+
+             # Get the loaded data
+             total_count = data.count('programme')/2
+             tv_elem = ElementTree.parse(StringIO.StringIO(data)).getroot()
+             cur = con.cursor()
+             count = 1
+             # channels = OrderedDict()  # line sets variable that's never used
+             for channel in tv_elem.findall('channel'):
+                 channel_name = channel.find('display-name').text
+                 for program in channel.findall('programme'):
+                     if __killthread__:
+                         raise AbortDownload('filling')
+                     title = program.find('title').text
+                     start_time = program.get("start")
+                     stop_time = program.get("stop")
+                     cur.execute("INSERT INTO programs(channel, title, start_date, stop_date)" + " VALUES(?, ?, ?, ?)", [channel_name, title, start_time, stop_time])
+                     status = 10 + int(float(count)/float(total_count) * 90.0)
+                     self.getControl(4202).setLabel(str(status) + '%')
+                     xbmc.sleep(10)
+                     count += 1
                  con.commit()
-                 con.close
+             print 'Channels have been successfully stored into the database!'
+             # self.logtime('Fill Database')
 
-         print 'Channels store into database are now successfully!'
-         program = None  # line sets variable that is never used
-         now = datetime.datetime.now()
-         #strCh = '(\'' + '\',\''.join(channelMap.keys()) + '\')'
-         cur.execute('SELECT channel, title, start_date, stop_date FROM programs WHERE channel')
-         getprogram_info = cur.fetchall()
+             # program = None  # line sets variable that is never used
+             # now = datetime.datetime.now()
+             # strCh = '(\'' + '\',\''.join(channelMap.keys()) + '\')'
+             cur.execute('SELECT channel, title, start_date, stop_date FROM programs WHERE channel')
+             getprogram_info = cur.fetchall()
 
-         for row in getprogram_info:
-             programming = row[0], row[1], row[2], row[3]
-             print programming  # I assume you are printing to the console because this is still in development
-             #print row[0], row[1], row[2], row[3]
-             #programming = row[0], row[1], row[2], row[3]
-             #programming = row[0], row[1], row[2], row[3]
-             #cur.close()#
-         __killtimer__ = True
-         self.threadt.stop()
-         del self.threadt
-         __killtimer__ = False
-
-
-
+             for row in getprogram_info:
+                 programming = row[0], row[1], row[2], row[3]
+                 print programming  # I assume you are printing to the console because this is still in development
+                 #print row[0], row[1], row[2], row[3]
+                 #programming = row[0], row[1], row[2], row[3]
+                 #programming = row[0], row[1], row[2], row[3]
+                 #cur.close()#
+             # print self.logtime('end')
+             self.getControl(4202).setLabel('')
+         except AbortDownload, e:
+             __killthread__ = False
+             if e.value == 'downloading':
+                 try:
+                    if u is not None:
+                        del u
+                    return
+                 except:
+                    return
+             elif e.value == 'filling':
+                 try:
+                    if cur is not None:
+                        del cur
+                    if con is not None:
+                        con.close()
+                        del con
+                    if os.path.exists(profilePath):
+                        os.remove(profilePath)
+                    return
+                 except:
+                    return
 
      def entertainment_timer(self):
          pass
@@ -1182,7 +1219,8 @@ class MyClass(xbmcgui.WindowXML):
                  self.getControl(4202).setLabel("")
                  ADDON.setSetting('allchannels.enabled', 'false')
                  self.abortdownload()
-                 profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', 'script.db'))
+                 self.getControl(4202).setLabel('')
+                 profilePath = xbmc.translatePath(os.path.join('special://userdata/addon_data/script.tvguide', 'source.db'))
                  # Deletes the db file if it persists after abort
                  if os.path.exists(profilePath):
                     os.remove(profilePath)
@@ -1975,6 +2013,8 @@ class MyClass(xbmcgui.WindowXML):
                      cSetVisible(self,4201,True)
                      cSetVisible(self,4202,True)
                      self.getControl(4202).setLabel("0%")
+                     if self.thread != None:
+                         del self.thread
                      self.thread = AllChannelsThread(self.allchannels_timer)
                      self.thread.start()
 
@@ -7082,71 +7122,13 @@ class MyClass(xbmcgui.WindowXML):
                          pass
 
      def abortdownload(self):
-         # This sets the flags for both processes to kill themselves
          global __killthread__
-         global __killtimer__
          __killthread__ = True
-         __killtimer__ = True
-         if self.threadt is not None:
-            self.threadt.stop()
          if self.thread is not None:
-            self.thread.stop()
-         __killtimer__ = False
-         __killthread__ = False
+            self.thread.join(3000)
+         del self.thread
+         self.thread = None
 
-
-class TimerThread(threading.Thread):
-
-    def __init__(self, xstart, xend, xtime, num_steps, targetcontrol):
-        """
-        Class that updates the perecent on targetcontrol based on time
-        :param xstart: The starting percentage
-        :param xend: The ending percentage
-        :param xtime: The amount of time to go from start to end
-        :param num_steps: The number of times to update the label
-        :param targetcontrol: The control (label) to be updated
-        :return:
-        """
-        threading.Thread.__init__(self, name='progress_timer')
-        self.xstart = xstart
-        self.xend = xend
-        self.xtime = xtime
-        self.num_steps = num_steps
-        self.targetcontrol = targetcontrol
-
-    def start(self):
-        threading.Thread.start(self)
-
-    def stop(self):
-        self.join(0.25)
-
-    def run(self):
-        # Multiple try blocks due to the fact that during an abort, the control may be deleted before
-        # arriving at that point in the loop
-        time_interval = int((self.xtime/self.num_steps) + 0.5) * 1000
-        status_interval = int(((self.xend-self.xstart)/self.num_steps) + 0.5)
-        status = self.xstart
-        try:
-            self.targetcontrol.setLabel(str(self.xstart) + "%")
-        except:
-            return
-        for i in xrange(self.num_steps):
-            if __killtimer__:
-                try:
-                    self.targetcontrol.setLabel(str(self.xend) + '%')
-                except:
-                    pass
-                return
-            xbmc.sleep(time_interval)
-            status += status_interval
-            try:
-                self.targetcontrol.setLabel(str(status) + "%")
-            except:
-                return
-        try:
-            self.targetcontrol.setLabel(str(self.xend) + '%')
-        except:
-            return
 
 class AllChannelsThread(threading.Thread):
     # This is needed for proper threading. The other method continued to block on the call.
@@ -7161,4 +7143,12 @@ class AllChannelsThread(threading.Thread):
         self.xtarget()
 
     def stop(self):
-        self.join(0.25)
+        self.join(2000)
+
+class AbortDownload(Exception):
+
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return repr(self.value)
